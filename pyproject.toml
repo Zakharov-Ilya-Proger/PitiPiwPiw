@@ -1,0 +1,20 @@
+[project]
+name="NetSolBackend"
+version="0.1.0"
+dependencies = [
+    'fastapi',
+    'uvicorn[standart]',
+    'alembic',
+    'sqlalchemy[asyncio]',
+    'pydantic',
+    'pydantic-settings',
+    'python-dotenv',
+    'pytest',
+    'pytest-asyncio',
+    'httpx',
+    'aiosqlite',
+    'bcrypt'
+]
+
+[tool.setuptools]
+packages=['app']
