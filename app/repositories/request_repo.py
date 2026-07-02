@@ -1,150 +1,186 @@
-from sqlite3 import IntegrityError
+from datetime import datetime
 
 from fastapi import Depends
-from sqlalchemy import insert, select, or_, and_, update, delete
+from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import (
-    DBCreateRequestError, AppError, DBGetRecordsError,
-    DBSearchRecordsError, DBNotFoundError, DBConflictError,
-    DBError, DBDeleteRecordsError, get_db
+    DBCreateRequestError,
+    DBDeleteRecordsError,
+    DBError,
+    DBGetRecordsError,
+    DBNotFoundError,
+    DBConflictError,
+    get_db,
 )
-from app.enums import Status, Role
+from app.enums import Priority, Role, Status
 from app.models import Request
 from app.schemas import CreateReqShem, Filters, Search, UpdateParams
-
 
 
 class RequestRepo:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_request(self, request: CreateReqShem, user_id: int):
+    async def create_request(self, request: CreateReqShem, user_id: int) -> Request:
         data = request.model_dump(exclude_unset=True)
-        data['created_by'] = user_id
-        async with self.db.begin():
-            try:
-                result = await self.db.execute(
-                    insert(Request)
-                    .values(**data)
-                    .returning(Request.id)
-                )
-                inserted = result.scalar_one_or_none()
-                if inserted is None:
-                    raise DBCreateRequestError('Не возможно создать заявку')
-                return inserted
-            except IntegrityError as e:
-                raise AppError(f'Ошибка создания заявки: {e}')
+        data["created_by"] = user_id
 
-    async def get_requests(self, user_id: int, filters: Filters, role: Role):
-        async with self.db.begin():
-            wheres = []
-            orders = []
+        db_request = Request(**data)
+        self.db.add(db_request)
 
-            if role == Role.user:
-                wheres.append(Request.created_by == user_id)
-            if filters.priority is not None:
-                wheres.append(Request.priority == filters.priority)
-            if filters.status is not None:
-                wheres.append(Request.status == filters.status)
+        try:
+            await self.db.commit()
+            await self.db.refresh(db_request)
+            return db_request
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise DBCreateRequestError(f"Ошибка создания заявки: {exc}") from exc
+        except (SQLAlchemyError, ValueError) as exc:
+            await self.db.rollback()
+            raise DBCreateRequestError(f"Ошибка создания заявки: {exc}") from exc
 
-            if filters.sort_date:
-                orders.append(Request.created_at.desc())
-            if filters.sort_priority:
-                orders.append(Request.priority.desc())
-                if not filters.sort_date:
-                    orders.append(Request.created_at.desc())
+    def _where_conditions(
+        self,
+        *,
+        user_id: int,
+        filters: Filters,
+        search: Search | None,
+        role: Role,
+    ) -> list:
+        conditions = []
 
-            stmt = select(Request)
-            if wheres:
-                stmt = stmt.where(*wheres)
-            if orders:
-                stmt = stmt.order_by(*orders)
+        if role == Role.user:
+            conditions.append(Request.created_by == user_id)
 
-            stmt = stmt.offset((filters.page - 1) * filters.limit).limit(filters.limit)
-            try:
-                result = await self.db.execute(stmt)
-                return result.scalars().all()
-            except IntegrityError as e:
-                raise DBGetRecordsError(e)
+        if filters.status is not None:
+            conditions.append(Request.status == filters.status)
 
-    async def search_requests(self, user_id: int, search: Search, role: Role):
-        async with self.db.begin():
-            wheres = []
-            conditions = []
+        if filters.priority is not None:
+            conditions.append(Request.priority == filters.priority)
 
-            if role == Role.user:
-                wheres.append(Request.created_by == user_id)
-
+        search_conditions = []
+        if search is not None:
             if search.title:
-                conditions.append(Request.title.ilike(f"%{search.title}%"))
+                search_conditions.append(Request.title.ilike(f"%{search.title}%"))
             if search.description:
-                conditions.append(Request.description.ilike(f"%{search.description}%"))
+                search_conditions.append(Request.description.ilike(f"%{search.description}%"))
 
-            wheres.append(or_(*conditions))
-            try:
-                result = await self.db.execute(
-                    select(Request)
-                    .where(*wheres)
-                )
-                return result.scalars().all()
-            except IntegrityError as e:
-                raise DBSearchRecordsError(e)
+        if search_conditions:
+            conditions.append(or_(*search_conditions))
 
-    async def update_status(self, user_id: int, target: UpdateParams, role: Role):
-        async with self.db.begin():
-            wheres = []
-            if role == Role.user:
-                wheres.append(Request.created_by == user_id)
-            wheres.append(Request.id == target.req_id)
-            try:
-                resul = await self.db.execute(
-                    select(Request).where(*wheres)
-                )
+        return conditions
 
-                data = resul.scalar_one_or_none()
-                if data is None:
-                    raise DBNotFoundError('Record not found')
-                if data.status == Status.done:
-                    raise DBConflictError('Status already done')
+    def _order_by(self, filters: Filters) -> list:
+        orders = []
 
-                res = await self.db.execute(
-                    update(Request.status)
-                    .where(Request.id == target.req_id)
-                    .values(target.status)
-                    .returning(Request.id, Request.status)
-                )
-                result = res.scalar_one_or_none()
-                if result is None:
-                    raise DBError('Failed to update status')
-                return result
-            except IntegrityError as e:
-                raise DBError(f'Failed update request status: {e}')
+        if filters.sort_priority:
+            priority_rank = case(
+                (Request.priority == Priority.high, 3),
+                (Request.priority == Priority.normal, 2),
+                (Request.priority == Priority.low, 1),
+                else_=0,
+            )
+            orders.append(priority_rank.desc())
 
-    async def delete_request(self, req_id: int):
-        async with self.db.begin():
-            try:
-                request = await self.db.execute(
-                    select(Request)
-                    .where(Request.id == req_id)
-                )
-                data = request.scalar_one_or_none()
-                if data is None:
-                    raise DBNotFoundError('Record not found')
-                if data.status == Status.done:
-                    raise DBConflictError('Status is done')
+        if filters.sort_date:
+            orders.append(Request.created_at.desc())
 
-                result = await self.db.execute(
-                    delete(Request)
-                    .where(Request.id == req_id)
-                    .returning(Request.id)
-                )
-                res = result.scalar_one_or_none()
-                if res is None:
-                    raise DBDeleteRecordsError('Record not found')
-            except IntegrityError as e:
-                raise DBError(f'Failed delete request status: {e}')
+        if not orders:
+            orders.append(Request.created_at.desc())
+
+        return orders
+
+    async def get_requests(
+        self,
+        user_id: int,
+        filters: Filters,
+        role: Role,
+        search: Search | None = None,
+    ) -> tuple[list[Request], int]:
+        conditions = self._where_conditions(
+            user_id=user_id,
+            filters=filters,
+            search=search,
+            role=role,
+        )
+        orders = self._order_by(filters)
+
+        page = max(filters.page, 1)
+        limit = max(min(filters.limit, 100), 1)
+        offset = (page - 1) * limit
+
+        stmt = select(Request)
+        count_stmt = select(func.count()).select_from(Request)
+
+        if conditions:
+            stmt = stmt.where(*conditions)
+            count_stmt = count_stmt.where(*conditions)
+
+        stmt = stmt.order_by(*orders).offset(offset).limit(limit)
+
+        try:
+            result = await self.db.execute(stmt)
+            total_result = await self.db.execute(count_stmt)
+            return list(result.scalars().all()), int(total_result.scalar_one())
+        except SQLAlchemyError as exc:
+            raise DBGetRecordsError(f"Ошибка получения заявок: {exc}") from exc
+
+    async def search_requests(self, user_id: int, search: Search, role: Role) -> tuple[list[Request], int]:
+        filters = Filters(page=1, limit=100, sort_date=True, sort_priority=False)
+        return await self.get_requests(user_id=user_id, filters=filters, search=search, role=role)
+
+    async def update_status(self, user_id: int, target: UpdateParams, role: Role) -> Request:
+        conditions = [Request.id == target.req_id]
+        if role == Role.user:
+            conditions.append(Request.created_by == user_id)
+
+        try:
+            result = await self.db.execute(select(Request).where(*conditions))
+            db_request = result.scalar_one_or_none()
+
+            if db_request is None:
+                raise DBNotFoundError("Заявка не найдена")
+
+            if db_request.status == Status.done:
+                raise DBConflictError("Заявку в статусе done нельзя редактировать")
+
+            db_request.status = target.target_status
+            db_request.updated_at = datetime.utcnow()
+
+            await self.db.commit()
+            await self.db.refresh(db_request)
+            return db_request
+        except (DBNotFoundError, DBConflictError):
+            await self.db.rollback()
+            raise
+        except SQLAlchemyError as exc:
+            await self.db.rollback()
+            raise DBError(f"Ошибка изменения статуса заявки: {exc}") from exc
+
+    async def delete_request(self, req_id: int) -> int:
+        try:
+            result = await self.db.execute(select(Request).where(Request.id == req_id))
+            db_request = result.scalar_one_or_none()
+
+            if db_request is None:
+                raise DBNotFoundError("Заявка не найдена")
+
+            if db_request.status == Status.done:
+                raise DBConflictError("Заявку в статусе done нельзя удалить")
+
+            deleted_id = db_request.id
+            await self.db.delete(db_request)
+            await self.db.commit()
+            return deleted_id
+        except (DBNotFoundError, DBConflictError):
+            await self.db.rollback()
+            raise
+        except SQLAlchemyError as exc:
+            await self.db.rollback()
+            raise DBDeleteRecordsError(f"Ошибка удаления заявки: {exc}") from exc
 
 
-async def get_request_repo(db: AsyncSession = Depends(get_db)):
+async def get_request_repo(db: AsyncSession = Depends(get_db)) -> RequestRepo:
     return RequestRepo(db=db)

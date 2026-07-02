@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: bfbd23304f4e
+Revision ID: b80d15dd5e27
 Revises: 
-Create Date: 2026-06-30 01:28:21.438388
+Create Date: 2026-07-02 18:23:02.751477
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'bfbd23304f4e'
+revision: str = 'b80d15dd5e27'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -25,7 +25,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('login', sa.String(), nullable=False),
     sa.Column('hash_pwd', sa.String(), nullable=False),
-    sa.Column('role', sa.Enum('user', 'admin', name='userrole'), nullable=False),
+    sa.Column('role', sa.Enum('user', 'admin', name='role'), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('login')
     )
@@ -33,11 +33,11 @@ def upgrade() -> None:
     op.create_table('requests',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('title', sa.String(length=120), nullable=False),
-    sa.Column('description', sa.String(length=1000), nullable=False),
-    sa.Column('status', sa.Enum('new', 'in_progress', 'done', name='requeststatus'), nullable=True),
-    sa.Column('priority', sa.Enum('low', 'normal', 'high', name='requestpriority'), nullable=False),
+    sa.Column('description', sa.String(length=1000), nullable=True),
+    sa.Column('status', sa.Enum('new', 'in_progress', 'done', name='status'), nullable=False),
+    sa.Column('priority', sa.Enum('high', 'normal', 'low', name='priority'), nullable=False),
     sa.Column('created_by', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['created_by'], ['user.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
