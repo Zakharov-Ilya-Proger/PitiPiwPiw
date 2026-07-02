@@ -62,30 +62,6 @@ async def list_requests(
         _raise_http_from_app_error(exc)
 
 
-@router.get("/search", response_model=RequestListOut)
-async def search_requests(
-    search: Search = Depends(),
-    filters: Filters = Depends(),
-    current_user: DBUser = Depends(get_current_user),
-    request_repo: RequestRepo = Depends(get_request_repo),
-) -> RequestListOut:
-    try:
-        items, total = await request_repo.get_requests(
-            user_id=current_user.id,
-            filters=filters,
-            search=search,
-            role=current_user.role,
-        )
-        return RequestListOut(
-            items=items,
-            page=filters.page,
-            limit=filters.limit,
-            total=total,
-        )
-    except Exception as exc:
-        _raise_http_from_app_error(exc)
-
-
 @router.patch("/status", response_model=RequestOut)
 async def update_request_status(
     payload: UpdateParams,

@@ -1,4 +1,7 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 
 from app.core.security import create_access_token, get_current_user, verify_password
 from app.models import User as DBUser
@@ -21,8 +24,10 @@ async def register_user(payload: User, user_repo: UserRepo = Depends(get_user_re
 
 
 @router.post('/login', response_model=Token)
-async def login_user(payload: User, user_repo: UserRepo = Depends(get_user_repo)) -> Token:
-    user = await user_repo.get_user(payload.login)
+async def login_user(
+        payload: Annotated[OAuth2PasswordRequestForm, Depends()],
+        user_repo: UserRepo = Depends(get_user_repo)) -> Token:
+    user = await user_repo.get_user(payload.username)
     if user is None or not verify_password(payload.password, user.hash_pwd):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Неверный логин или пароль')
 

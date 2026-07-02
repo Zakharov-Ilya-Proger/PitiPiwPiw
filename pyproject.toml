@@ -13,7 +13,9 @@ dependencies = [
     'pytest-asyncio',
     'httpx',
     'aiosqlite',
-    'bcrypt'
+    'bcrypt',
+    'python-multipart',
+    'PyJWT'
 ]
 
 [tool.setuptools]

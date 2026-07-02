@@ -9,3 +9,4 @@ RUN pip install .
 
 CMD ["alembic", "upgrade", "head"]
 CMD ["python", "-m", "app.core.default_db"]
+
