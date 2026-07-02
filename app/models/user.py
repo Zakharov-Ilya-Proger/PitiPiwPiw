@@ -5,12 +5,10 @@ from sqlalchemy import Index, UniqueConstraint, Integer, String, Enum
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 
 from app.core import DB
+from app.enums import Role
+
 if TYPE_CHECKING:
     from app.models.request import Request
-
-class UserRole(PyEnum):
-    user = 'user'
-    admin = 'admin'
 
 
 class User(DB):
@@ -24,6 +22,6 @@ class User(DB):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     login: Mapped[str] = mapped_column(String, nullable=False)
     hash_pwd: Mapped[str] = mapped_column(String, nullable=False)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
+    role: Mapped[Role] = mapped_column(Enum(Role), nullable=False)
 
     requests = relationship('Request', foreign_keys='Request.created_by', back_populates='user')
