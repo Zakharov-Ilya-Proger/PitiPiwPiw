@@ -7,7 +7,14 @@ from tests.conftest import API_PREFIX, extract_token, login_headers
 async def test_login_returns_jwt_token(client, regular_user):
     response = await client.post(
         f"{API_PREFIX}/auth/login",
-        json={"login": "user", "password": "password"},
+        headers={
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        data={
+            'grant_type': 'password',
+            "username": "user",
+            "password": "password"
+        }
     )
 
     assert response.status_code == 200, response.text
@@ -20,7 +27,11 @@ async def test_login_returns_jwt_token(client, regular_user):
 async def test_login_rejects_wrong_password(client, regular_user):
     response = await client.post(
         f"{API_PREFIX}/auth/login",
-        json={"login": "user", "password": "wrong-password"},
+        data={
+            'grant_type': 'password',
+            "username": "user",
+            "password": "wrong-password"
+        },
     )
 
     assert response.status_code in {400, 401, 403}, response.text

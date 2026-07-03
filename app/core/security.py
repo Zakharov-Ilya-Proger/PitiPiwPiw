@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import jwt
@@ -20,18 +20,18 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict[str, Any]) -> str:
     payload = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=settings.jwt_expire_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
 
     payload.update({'exp': expire})
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
     try:
         return jwt.decode(
             token,
-            settings.jwt_secret_key,
-            algorithm=settings.jwt_algorithm
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
         )
     except jwt.ExpiredSignatureError:
         raise HTTPException(
@@ -56,7 +56,7 @@ async def get_current_user(
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='В токене отсутствует идентификатор пользователя',
+            detail='No token',
             headers={'WWW-Authenticate': 'Bearer'},
         )
 

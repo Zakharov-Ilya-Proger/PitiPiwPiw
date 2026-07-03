@@ -178,7 +178,7 @@ def extract_token(payload: Any) -> str:
 async def login_headers(client: AsyncClient, login: str, password: str) -> dict[str, str]:
     response = await client.post(
         f"{API_PREFIX}/auth/login",
-        json={"login": login, "password": password},
+        data={"username": login, "password": password, 'grant_type': 'password'},
     )
     assert response.status_code == 200, response.text
     token = extract_token(response.json())

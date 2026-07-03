@@ -14,7 +14,7 @@ router = APIRouter(prefix='/auth', tags=['auth'])
 @router.post('/register', response_model=Token, status_code=status.HTTP_201_CREATED)
 async def register_user(payload: User, user_repo: UserRepo = Depends(get_user_repo)) -> Token:
     created_user = await user_repo.create_user(payload)
-    access_token = create_access_token({'sub': created_user.id, 'login': created_user.login, 'role': created_user.role.value})
+    access_token = create_access_token({'sub': str(created_user.id), 'login': created_user.login, 'role': created_user.role.value})
     return Token(
         access_token=access_token,
         user_id=created_user.id,
@@ -31,7 +31,7 @@ async def login_user(
     if user is None or not verify_password(payload.password, user.hash_pwd):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Неверный логин или пароль')
 
-    access_token = create_access_token({'sub': user.id, 'login': user.login, 'role': user.role.value})
+    access_token = create_access_token({'sub': str(user.id), 'login': user.login, 'role': user.role.value})
     return Token(
         access_token=access_token,
         user_id=user.id,
